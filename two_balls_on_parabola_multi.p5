@@ -455,30 +455,22 @@ function runge_kutta4() {
     rungekutta_advance(work, balls_prev, db03, 1.0); //step 4
     equation_of_motion(work, db04, dt); //the result
 
-    balls.x1 =
-        balls_prev.x1 +
-        (ONE_SIXTH * db01.x1 +
-            ONE_THIRD * db02.x1 +
-            ONE_THIRD * db03.x1 +
-            ONE_SIXTH * db04.x1);
-    balls.v1 =
-        balls_prev.v1 +
-        (ONE_SIXTH * db01.v1 +
-            ONE_THIRD * db02.v1 +
-            ONE_THIRD * db03.v1 +
-            ONE_SIXTH * db04.v1);
-    balls.x2 =
-        balls_prev.x2 +
-        (ONE_SIXTH * db01.x2 +
-            ONE_THIRD * db02.x2 +
-            ONE_THIRD * db03.x2 +
-            ONE_SIXTH * db04.x2);
-    balls.v2 =
-        balls_prev.v2 +
-        (ONE_SIXTH * db01.v2 +
-            ONE_THIRD * db02.v2 +
-            ONE_THIRD * db03.v2 +
-            ONE_SIXTH * db04.v2);
+    balls.x1 = balls_prev.x1 + (ONE_SIXTH * db01.x1 +
+                                ONE_THIRD * db02.x1 +
+                                ONE_THIRD * db03.x1 +
+                                ONE_SIXTH * db04.x1);
+    balls.v1 = balls_prev.v1 + (ONE_SIXTH * db01.v1 +
+                                ONE_THIRD * db02.v1 +
+                                ONE_THIRD * db03.v1 +
+                                ONE_SIXTH * db04.v1);
+    balls.x2 = balls_prev.x2 + (ONE_SIXTH * db01.x2 +
+                                ONE_THIRD * db02.x2 +
+                                ONE_THIRD * db03.x2 +
+                                ONE_SIXTH * db04.x2);
+    balls.v2 = balls_prev.v2 + (ONE_SIXTH * db01.v2 +
+                                ONE_THIRD * db02.v2 +
+                                ONE_THIRD * db03.v2 +
+                                ONE_SIXTH * db04.v2);
 }
 
 function parabola_func_upper(x) {
