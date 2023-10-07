@@ -257,10 +257,6 @@ let footer = new Footer();
 let windowz;
 
 class GeneralCoords {
-    x;
-    vx;
-    y;
-    vy;
     constructor(x, vx, y, vy) {
         this.x = x;
         this.vx = vx;
@@ -271,7 +267,6 @@ class GeneralCoords {
 }
 
 function setup() {
-
     createCanvas(1200, 600);
     background(255);
     frameRate(60); // window = new Window[3];
