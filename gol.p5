@@ -17,9 +17,9 @@
 //
 
 
-const cellSize = 6; // size of alive-dead cell
-const NX = 120;     // number of cells in x
-const NY = 120;     //                 in y
+const cellSize = 10; // size of alive-dead cell
+const NX = 60;     // number of cells in x
+const NY = 60;     //                 in y
 const NXNY = NX*NY;
 
 var cells;           // (Practically) 2-D array of cells
