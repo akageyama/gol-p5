@@ -6,13 +6,6 @@
 // Copy and paste whole this program to "Editor" at
 //    https://editor.p5js.org/
 // 
-// Usage:
-//    Keyboard ' ' : Program stop/start toggle.
-//    Keyboard 'c' : Clear all the cells.
-//    Keyboard 'R' : Reset to "R-pentomino".
-//    Keyboard 'P' : Reset to "Pentadecathlon".
-//    Keyboard 'A' : Reset to "Acorn".
-//    Keyboard 'G' : Reset to "Glider".
 //
 
 
@@ -20,6 +13,17 @@ const cellSize = 6; // pixel size of a cell
 const NX = 100;     // number of cells in x
 const NY = 100;     //                 in y
 const NXNY = NX*NY;
+
+let initial_state = 'R'
+                 //<>-<>-<>-<>-<>-<>-<>-<>-<>//
+                 // 'R' => "R-pentomino".  
+                 // 'P' => "Pentadecathlon".
+                 // 'A' => "Acorn".
+                 // 'G' => "Glider".
+                 // 'x' => "Glider Gun"
+                 // 'r' => Random
+                 //<>-<>-<>-<>-<>-<>-<>-<>-<>//
+  
 
 var cells;          // (Practically) 2-D array of cells
 var cellsCopy;      // Copy buffer of the cells
@@ -129,18 +133,12 @@ function setup()
   cells     = new Array(NXNY);
   cellsCopy = new Array(NXNY);
 
-  print( "Starting..." );
-
-
-  // Gray curve around each cell circle
+  // Gray curve around each cell 
   stroke(100);
-
-  // Anti-aliasing  
-  smooth(8);
 
   clearAllCells();
   
-  initializeAllCells( 'G' );
+  initializeAllCells( initial_state );
 }
 
 
@@ -148,9 +146,14 @@ function draw()
 {  
   background(210, 230, 255);
 
-  draw_cells();
   lastRecordedTime = 0; // Used to puase the run.
   
+  if (millis() > 3000) {
+    runningStateToggle = 1
+  }
+
+  draw_cells();
+
   if ( runningStateToggle ) {
       step++;
       // print( " step = " + step );
@@ -159,47 +162,58 @@ function draw()
 }
 
 
-function keyPressed() 
-{
-  switch ( key ) {
-    case ' ':  
-      runningStateToggle = toggle( runningStateToggle );
-      if ( runningStateToggle == 1 ) {
-        print( "Running." );
-      } else {
-        print( "Stop." );
-      }
-      break;    
-    case 'R':
-      runningStateToggle = 0;
-      initializeAllCells( 'R' );
-      break;
-    case 'P':
-      runningStateToggle = 0;
-      initializeAllCells( 'P' );
-      break;
-    case 'A':
-      runningStateToggle = 0;
-      initializeAllCells( 'A' );
-      break;
-    case 'G':
-      runningStateToggle = 0;
-      initializeAllCells( 'G' );
-      break;
-    case 'c':
-      runningStateToggle = 0;
-      clearAllCells();
-      break;
-    case 'r':
-      runningStateToggle = 0;
-      superimpose_random();
-      break;      
-    case 'x':
-      runningStateToggle = 0;
-      initializeAllCells( 'x' );
-      break;      
-  }
-}
+
+// function keyPressed() 
+// {
+////  Usage:
+////     Keyboard ' ' : Program stop/start toggle.
+////     Keyboard 'c' : Clear all the cells.
+////     Keyboard 'R' : Reset to "R-pentomino".
+////     Keyboard 'P' : Reset to "Pentadecathlon".
+////     Keyboard 'A' : Reset to "Acorn".
+////     Keyboard 'G' : Reset to "Glider".
+////     Keyboard 'r' : Random
+////     Keyboard 'x' : Glider gun
+//
+//   switch ( key ) {
+//     case ' ':  
+//       runningStateToggle = toggle( runningStateToggle );
+//       if ( runningStateToggle == 1 ) {
+//         print( "Running." );
+//       } else {
+//         print( "Stop." );
+//       }
+//       break;    
+//     case 'R':
+//       runningStateToggle = 0;
+//       initializeAllCells( 'R' );
+//       break;
+//     case 'P':
+//       runningStateToggle = 0;
+//       initializeAllCells( 'P' );
+//       break;
+//     case 'A':
+//       runningStateToggle = 0;
+//       initializeAllCells( 'A' );
+//       break;
+//     case 'G':
+//       runningStateToggle = 0;
+//       initializeAllCells( 'G' );
+//       break;
+//     case 'c':
+//       runningStateToggle = 0;
+//       clearAllCells();
+//       break;
+//     case 'r':
+//       runningStateToggle = 0;
+//       superimpose_random();
+//       break;      
+//     case 'x':
+//       runningStateToggle = 0;
+//       initializeAllCells( 'x' );
+//       break;      
+//   }
+// }
 
 
 // function mouseClicked()

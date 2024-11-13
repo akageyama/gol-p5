@@ -7,7 +7,7 @@ let rule = 240;    // 240, 30, 90 の中のどれかを指定
         //  30 => カオス
         //  90 => シェルピンスキーの自己相似三角形
 
-let cellSize = 8;  // セル一つのピクセルサイズ
+let cellSize = 5;  // セル一つのピクセルサイズ
 
 let initial_condition = '1'  // 1 or r
         // '1' => 真ん中に1つだけ1をセット
@@ -18,24 +18,27 @@ let numCell = 121; // セルの総数。ちょうど真ん中に
 
 let cells;         // セルの配列
 let cellsCopy;     // 計算の効率化のために用意するセル配列のコピー
-let pause = false; // 計算を一時停止するときに使う
+let pause = true;  // 時間進行停止状態
+
+let initial_wait_seconds = 3 // 計算開始時にこの秒数だけ時間進行を停止
 
 function setup() {
     //
     //  setup関数は最初に一度だけ呼ばれる。各種初期化を行う。
     //
-    let width  = cellSize*numCell;
-    let height = 100;              // なんでもいい
-    createCanvas(width, height);   // 表示ウィンドウの横幅と高さのピクセル数を最初に決める
-    console.log("  Space key => stop/start.");
-    console.log("    'c' key => clear");
-    console.log("    'r' key => random");
-    console.log(" Return key => one step"); // 画面にメッセージを表示
+
+    createCanvas(cellSize*numCell, 100);   
+         // 表示ウィンドウの横幅と高さのピクセル値。高さはなんでもいい
+
+    // console.log("  Space key => stop/start.");
+    // console.log("    'c' key => clear");
+    // console.log("    'r' key => random");
+    // console.log(" Return key => one step"); // 画面にメッセージを表示
 
     cells = new Array(numCell);     // セル配列の確保
     cellsCopy = new Array(numCell); // セル配列の「カーボンコピー」の確保
     background(255);                // 背景を白に設定
-    stroke(0);                      // セルの周囲を黒い線で描く
+    stroke(100);                    // セルの周囲を灰色の線で描く
     clearCells();                   // セル配列をリセット
     if ( initial_condition == "1" ) {
       cells[int(numCell/2)+1] = 1;      // 真ん中のセルに1をセット
@@ -76,6 +79,11 @@ function clearCells() {
 
 function draw() {
     drawCells();
+  
+    if ( millis() > initial_wait_seconds*1000 ) {
+        pause = false;
+    }
+
     if (!pause) {
         stepTime();
     }
@@ -150,37 +158,40 @@ function setRandomCells() {
     }
 }
 
-function keyPressed() {
-    if (key == "r" || key == "R") {
-        // 各セルの状態をランダムに割り当てるランダムに
-        clearScreen(); // Restart: reinitialization of cells
-        setRandomCells();
-        boundaryCondition();
-        copyCells();
-    }
-    if (key == " ") {
-        // On/off of pause
-        pause = !pause;
-    }
-    if (key == "c" || key == "C") {
-        // Clear all
-        clearScreen();
-        clearCells();
-        copyCells();
-        pause = true;
-    }
-    if (key == "1") {
-        clearScreen();
-        clearCells();
-        cells[int(numCell/2)+1] = 1;    // 真ん中のセルに1をセット
-        boundaryCondition();
-        copyCells();
-        pause = true;
-    }
-    if (key == "\n") {
-        stepTime();
-    }
-}
+// キーボード入力機能
+//   タッチ画面でやりにくいのでつかわないことにした
+//
+// function keyPressed() {
+//     if (key == "r" || key == "R") {
+//         // 各セルの状態をランダムに割り当てるランダムに
+//         clearScreen(); // Restart: reinitialization of cells
+//         setRandomCells();
+//         boundaryCondition();
+//         copyCells();
+//     }
+//     if (key == " ") {
+//         // On/off of pause
+//         pause = !pause;
+//     }
+//     if (key == "c" || key == "C") {
+//         // Clear all
+//         clearScreen();
+//         clearCells();
+//         copyCells();
+//         pause = true;
+//     }
+//     if (key == "1") {
+//         clearScreen();
+//         clearCells();
+//         cells[int(numCell/2)+1] = 1;    // 真ん中のセルに1をセット
+//         boundaryCondition();
+//         copyCells();
+//         pause = true;
+//     }
+//     if (key == "\n") {
+//         stepTime();
+//     }
+// }
 
 function boundaryCondition() {
     // 周期境界条件
