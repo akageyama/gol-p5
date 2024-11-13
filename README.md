@@ -2,19 +2,18 @@
 
   - Akira Kageyama, Kobe Univ., Japan
   - 2023.10.07 
-    - gol.p5
-    - two\_balls\_on\_parabola_multi.p5 
-    - a\_ball\_bounce\_on_parabola\_multi.p5
+    - add two\_balls\_on\_parabola_multi.p5 
+    - add a\_ball\_bounce\_on_parabola\_multi.p5
   - 2024.11.13
-    - cellular\_automaton\_2d\_game\_of\_life.p5
-    - cellular\_automaton\_1d.p5
-    - cellular\_automaton\_1d\_time\_development.p5
-    - smoke\_ring\_2d.p5
+    - add cellular\_automaton\_2d\_game\_of\_life.p5
+    - rm gol.p5
+    - add cellular\_automaton\_1d.p5
+    - add cellular\_automaton\_1d\_time\_development.p5
+    - add smoke\_ring\_2d.p5
 
 ## Codes
 
   - cellular\_automaton\_2d\_game\_of\_life.p5
-  - gol.p5 (essentially the same)
      - A straightforward implementation of Game of Life.
 
   - two\_balls\_on\_parabola_multi.p5 
