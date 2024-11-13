@@ -1,0 +1,1081 @@
+//
+//-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-
+//
+// 渦輪（smoke ring）の形成と伝播のシミュレーション
+//
+//    Written by Akira Kageyama (kage@port.kobe-u.ac.jp)
+//            in Processing, Dec. 2021.
+//    Converted to P5js 
+//            by https://dkessner.github.io/processing-p5-convert/
+//            in Nov. 2024 with minor edit.
+//
+//   - 2次元の圧縮性流体方程式を解く。
+//   - 2次有限差分法で空間を離散化し、4次のルンゲクッタ法を用いて時間積分する。
+//   - 周期的境界条件を採用している。
+//   - 室温，1気圧の空気が局所的にかかる短時間の力で駆動される。
+//   - その結果、渦の輪（2次元なので実際にはシート）が形成され、伝搬する。
+//   - 粘性と熱拡散率は実際の空気の値よりもはるかに大きい値をとる。
+//   - 空間分解能が低いので乱流は分解できない。
+//   - その他の物理量は実際の空気を想定する。
+//
+// 可視化に関する注意点
+//   - 渦度場は色で示す（赤/青は正/負）
+//   - 流速場は矢印で示される
+//   - 一つの矢印は3本の線分で描画している。
+//
+// コード化についての注意点
+//   - このコードはC言語によるシミュレーションコード開発のプロトタイプとして作った。
+//   - したがってクラスの使用は意図的に避けている。
+//   - 二度繰り返されるアンダースコアのついた名前は共通するグループを表す。
+//   - 例えば、変数 "solver__*"という名前の変数や関数は、"solver "ルーチンに関連している。
+//   - Cコードでは、同じグループの変数や関数は1つのファイルに格納する（"solver.c “）。
+//
+// 実行時の注意点。
+//   - 粘性の低い流体（粘度や熱拡散率が低い）をシミュレートしようとする場合は、
+//     グリッドサイズ（NXやNY）を大きくする必要がある。
+//   - ウィンドウサイズ（幅と高さ）は、NXとNYの倍数に設定するのがよい。
+//
+// 基本方程式の注意点
+//   - NSの方程式の圧力の式では、粘性による加熱の効果を無視している。
+//
+//
+//
+// Smoke-ring formation by Processing
+//
+//    - Here we solve two-dimensional compressible fluid equations
+//      by 2nd order finite difference method with 4th order Runge-Kutta
+//      integration.
+//    - Periodic boundary condition is adopted.
+//    - Air in the room temperature at one atmospheric pressure
+//      is driven by a localized force during a short time.
+//    - Smoke rings (actually sheets in 2D) are formed and propagate.
+//    - Viscosity and thermal diffusivity are much larger than the real
+//      values of the air. We cannot resolve turbulence in low spatial resolutions.
+//    - Other physical quantities are for the real air.
+//
+//    Notes on visualization.
+//    - Vorticity field is shown by color (red/blue for positive/negative).
+//    - Flow velocity field is shown by arrows.
+//
+//    Notes on the coding.
+//    - This code will be used as a proptotype of simulation code development in C.
+//    - We intentionally avoid using "class".
+//    - Repeated underscores are signs of a group. For example, variables
+//      and functions with name of "solver__*" are related to "solver" routine.
+//    - In the C code, those variables and functions with the common key word
+//      before the repeated underscore ("solver" in the above example) will be
+//      stored in one file, such as "solver.c".
+//
+//    Note on the execution.
+//    - When you try to simulate less viscous fluid (with lower viscosity
+//      and thermal diffusivity), you should increase the grid size (NX and NY).
+//
+//    Notes on the equation.
+//    - We negrect viscous heating effect, which is small, in the pressure
+//      equation.
+//    - It would be better to set the window size (width and height) as multiple
+//      of NX and NY.
+//
+//    Written by Akira Kageyama (kage@port.kobe-u.ac.jp)
+//            in Processing, Dec. 2021.
+//    Converted to P5js 
+//            by https://dkessner.github.io/processing-p5-convert/
+//            in Nov. 2024 with minor edit.
+//
+//-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-<>-
+
+
+// Grid size 計算格子点数（空間分解能）
+let NX = 124; // x方向の格子点数
+let NY = 64; // y方向の格子点数
+       
+         // -------------< パラメータ探索の記録 >-------------
+         // let NX = 62; // x方向の格子点数
+         // let NY = 32; // y方向の格子点数
+         // この値を変更する時には下のviscosityも変更せよ
+         // -------------</ パラメータ探索の記録 >-------------
+
+// Simulation region. シミュレーション領域
+let XMIN = -1.0; // x座標の最小値
+let XMAX =  1.0; //        最大値
+let YMIN = -0.5; // y座標の最小値
+let YMAX =  0.5; //        最大値
+
+// You can control viscosity and thermal diffusivity here.
+// 空気の粘性率と熱拡散率。この2つの値は現実のものより
+//   大きい。解像度の低い計算をするときにはこの2つの値を
+//   大きくする必要がある。
+let VISCOSITY = 2e-2;   // (NX,NY)=(124,64)の時に実行可能
+let THERMAL_DIFFUSIVITY = VISCOSITY;
+       
+         // -------------< パラメータ探索の記録 >-------------
+         // let VISCOSITY = 4e-2;  // (NX,NY)=(64,32)の時に実行可能
+         // let THERMAL_DIFFUSIVITY = VISCOSITY;
+         // -------------</ パラメータ探索の記録 >-------------
+
+// Following values are real air's
+// 以下値は現実の空気の値
+//   gammaという名前は比熱比としてよく使われる
+let GAMMA = 1.4; // Specific heats ratio of air.
+let GAMMA1_TD = (GAMMA - 1.0) * THERMAL_DIFFUSIVITY;
+let GASS_CONST_OF_AIR = 2.87e2;
+
+let simtime_step;          // シミュレーションの時間ステップ数
+let simtime_t, simtime_dt; // 時刻と時間積分刻み幅
+
+// 以下は空気の場（field）を表す最重要変数（2次元配列）
+let field__mfx; // 質量フラックス mass flux のx成分
+let field__mfy; // ... y成分
+let field__rho; // 質量密度。ギリシャ文字のrho
+let field__prs; // 圧力
+
+// 以下は4段4次のルンゲ・クッタ法で必要となる作業変数。
+//   これだけ多くの作業変数を使わないルンゲ・クッタ法も
+//   存在するが（たとえばルンゲ・クッタ・ジル法）
+//   ここでは分かりやすく教科書どおりに
+//   作業変数を使用する。
+let solver__delta0_mfx;
+let solver__delta0_mfy;
+let solver__delta0_rho;
+let solver__delta0_prs;
+let solver__delta1_mfx;
+let solver__delta1_mfy;
+let solver__delta1_rho;
+let solver__delta1_prs;
+let solver__delta2_mfx;
+let solver__delta2_mfy;
+let solver__delta2_rho;
+let solver__delta2_prs;
+let solver__delta3_mfx;
+let solver__delta3_mfy;
+let solver__delta3_rho;
+let solver__delta3_prs; 
+let solver__copy_mfx;   // これもアルゴリズム上必要な作業変数
+let solver__copy_mfy;
+let solver__copy_rho;
+let solver__copy_prs; 
+
+// 渦輪を駆動する力は空間的に狭い場所に
+//   局所的にしかかけないが、計算効率を
+//   優先して全空間にわたる2次元配列を
+//   2つ（x成分とy成分）使用する
+let solver__drive_force_x;
+let solver__drive_force_y; 
+
+// 空気の状態の時間変化を記述する流体方程式は
+//   基本変数 (mfx, mfy, rho, prs) の時間発展を
+//   与える微分方程式であるが、その右辺には
+//   以下のようないわば補助的な変数も出てくる
+let subfield__temp; // 温度 temperature
+let subfield__velx; // 流れ速度 velocity x成分
+let subfield__vely; // ... y成分
+let subfield__vel2; // 速度の2乗
+let subfield__divv; // 速度の発散 divergence
+let subfield__vorz; // 速度の回転=渦度 vorticity
+
+// 差分法の格子点関係のデータ
+let grid__dx, grid__dy;     // 格子間隔
+let grid__dx1, grid__dy1;   // 一階差分に必要な係数
+let grid__dx2, grid__dy2;   // 二階差分に必要な係数
+let grid__del;              // 最短格子間隔。CFL条件に必要
+let grid__delsq;            // 最短格子間隔の2乗
+let grid__posx, grid__posy; // 各格子点のx,y座標配列
+
+function setup() {
+    // createCanvas(1240, 640); // Windowサイズ
+    createCanvas(868, 448);  // Windowサイズ
+    simtime_t = 0.0;         // シミュレーション時刻と
+    simtime_step = 0;        //   ステップ数を0に設定する
+
+    // 基本変数配列と補助変数配列のメモリ割り当て
+    //    [NY][NX] で宣言されていることに注意
+    //    順番は[0][0], [0][1], [0][2], ...
+    field__mfx = Array.from(new Array(NY), () => new Array(NX));
+    field__mfy = Array.from(new Array(NY), () => new Array(NX));
+    field__rho = Array.from(new Array(NY), () => new Array(NX));
+    field__prs = Array.from(new Array(NY), () => new Array(NX));
+    solver__copy_mfx = Array.from(new Array(NY), () => new Array(NX));
+    solver__copy_mfy = Array.from(new Array(NY), () => new Array(NX));
+    solver__copy_rho = Array.from(new Array(NY), () => new Array(NX));
+    solver__copy_prs = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta0_mfx = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta0_mfy = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta0_rho = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta0_prs = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta1_mfx = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta1_mfy = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta1_rho = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta1_prs = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta2_mfx = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta2_mfy = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta2_rho = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta2_prs = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta3_mfx = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta3_mfy = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta3_rho = Array.from(new Array(NY), () => new Array(NX));
+    solver__delta3_prs = Array.from(new Array(NY), () => new Array(NX));
+    solver__drive_force_x = Array.from(new Array(NY), () => new Array(NX));
+    solver__drive_force_y = Array.from(new Array(NY), () => new Array(NX));
+    subfield__temp = Array.from(new Array(NY), () => new Array(NX));
+    subfield__velx = Array.from(new Array(NY), () => new Array(NX));
+    subfield__vely = Array.from(new Array(NY), () => new Array(NX));
+    subfield__vel2 = Array.from(new Array(NY), () => new Array(NX));
+    subfield__divv = Array.from(new Array(NY), () => new Array(NX));
+    subfield__vorz = Array.from(new Array(NY), () => new Array(NX));
+    grid__posx = new Array(NX);
+    grid__posy = new Array(NY); 
+
+    grid__initialize();   //  計算格子の設定
+  
+    // 空気場の初期化。
+    // 質量密度（rho）と圧力（prs）は常温、
+    // 1気圧での実際の空気の値をSI単位系の
+    // 値で設定する。
+    //
+    // 1気圧は1013ヘクトパスカル[hPa]である。
+    // これをSI単位系でかけば1.013e5 [N/m^2]。
+    //
+    // 初期条件では空気の流れは存在しない。
+    // 質量フラックスは質量密度rhoと速度の積
+    // なので初期条件での質量フラックスはゼロ。
+    for (let j = 0; j < NY; j++) {
+        for (let i = 0; i < NX; i++) {
+            field__rho[j][i] = 1.293;   // [kg/m^3]
+            field__prs[j][i] = 1.013e5; // 1013 [hPa]
+            field__mfx[j][i] = 0.0;     // 0 [m/s]
+            field__mfy[j][i] = 0.0;     // 0 [m/s]
+            solver__copy_mfx[j][i] = 0.0;
+            solver__copy_mfy[j][i] = 0.0;
+            solver__copy_rho[j][i] = 0.0;
+            solver__copy_prs[j][i] = 0.0;
+            solver__delta0_mfx[j][i] = 0.0;
+            solver__delta0_mfy[j][i] = 0.0;
+            solver__delta0_rho[j][i] = 0.0;
+            solver__delta0_prs[j][i] = 0.0;
+            solver__delta1_mfx[j][i] = 0.0;
+            solver__delta1_mfy[j][i] = 0.0;
+            solver__delta1_rho[j][i] = 0.0;
+            solver__delta1_prs[j][i] = 0.0;
+            solver__delta2_mfx[j][i] = 0.0;
+            solver__delta2_mfy[j][i] = 0.0;
+            solver__delta2_rho[j][i] = 0.0;
+            solver__delta2_prs[j][i] = 0.0;
+            solver__delta3_mfx[j][i] = 0.0;
+            solver__delta3_mfy[j][i] = 0.0;
+            solver__delta3_rho[j][i] = 0.0;
+            solver__delta3_prs[j][i] = 0.0;
+            solver__drive_force_x[j][i] = 0.0;
+            solver__drive_force_y[j][i] = 0.0;
+            subfield__temp[j][i] = 0.0;
+            subfield__velx[j][i] = 0.0;
+            subfield__vely[j][i] = 0.0;
+            subfield__vel2[j][i] = 0.0;
+            subfield__divv[j][i] = 0.0;
+            subfield__vorz[j][i] = 0.0;
+        }
+    } 
+
+    boundary_condition__field(); // 基本場の境界条件の設定
+    subfield__calc();            // 基本場から補助場subfield を求める    
+    solver__set_time_step();     // 時間刻み幅の設定
+
+    solver__set_drive_force_field(); //  渦輪を駆動する局所的・短時間の力の場の設定
+
+    stroke(100); // 灰色でセルの周囲を描く
+    smooth(8);   // Anti-aliasing 滑らかな表示のため
+} 
+
+//
+// 描画ルーチン。毎時刻ステップ自動的に呼ばれる
+//
+function draw() {
+    let COLOR_PLUS_RED    = 255;
+    let COLOR_PLUS_GREEN  = 120;
+    let COLOR_PLUS_BLUE   = 120;
+    let COLOR_MINUS_RED   = 120;
+    let COLOR_MINUS_GREEN = 120;
+    let COLOR_MINUS_BLUE  = 255;
+
+    let pixels_per_grid   = width / NX;
+    background(210, 230, 255); 
+
+    // 一度の描画の前にシミュレーションの時間積分を複数回繰り返す
+    // 一度の描画でシミュレーションを1ステップだけ進めることも
+    // 可能だが、そうすると現象の進行が耐えがたいほど遅く見える
+    for (let counter = 0; counter < 10; counter++) {
+        solver__advance();
+        simtime_step++;
+        solver__set_time_step();
+    }
+
+    for (let j = 0; j < NY; j++) {
+        for (let i = 0; i < NX; i++) {
+            // float maxvelsq = 100.0;
+            // int relative_amp = int( ( subfield__vel2[j][i] / maxvelsq ) * 255 );
+            // fill( relative_amp ); // grayscale
+            let max_vorz = 100.0;
+            let normalized_vorz = subfield__vorz[j][i] / max_vorz;
+            let red, green, blue;
+            if (normalized_vorz > 0) {
+                red   = int(normalized_vorz * COLOR_PLUS_RED);
+                green = int(normalized_vorz * COLOR_PLUS_GREEN);
+                blue  = int(normalized_vorz * COLOR_PLUS_BLUE);
+            } else {
+                red   = int(-normalized_vorz * COLOR_MINUS_RED);
+                green = int(-normalized_vorz * COLOR_MINUS_GREEN);
+                blue  = int(-normalized_vorz * COLOR_MINUS_BLUE);
+            }
+            fill(red, green, blue); // color cale
+            square(i * pixels_per_grid, j * pixels_per_grid, pixels_per_grid);
+            let grid_center_x = (float(i) + 0.5) * pixels_per_grid;
+            let grid_center_y = (float(j) + 0.5) * pixels_per_grid;
+            let length_control_factor = 0.1;
+            let vx_normalized = subfield__velx[j][i] * length_control_factor;
+            let vy_normalized = subfield__vely[j][i] * length_control_factor;
+            draw__arrow(
+                grid_center_x,
+                grid_center_y,
+                vx_normalized * pixels_per_grid,
+                vy_normalized * pixels_per_grid
+            );
+        }
+    }
+} 
+
+//
+// 流れを示す矢印の描画
+//
+function draw__arrow(x, y, vect_x, vect_y) {
+    //             1 (x1,y1)
+    //            /|\
+    //           / | \
+    // (x3,y3)  3  2  4  (x4,y4)
+    //             |
+    //             o (x,y)
+    //             |
+    //             |
+    //             |
+    //             0 (x0,y0)
+    //
+    let vect_length = sqrt(vect_x * vect_x + vect_y * vect_y);
+    if (vect_length < 1e-10) return;
+    let x0 = x - 0.5 * vect_x;
+    let y0 = y - 0.5 * vect_y;
+    let x1 = x0 + vect_x;
+    let y1 = y0 + vect_y;
+    let x2 = x0 + (3.0 / 4.0) * vect_x;
+    let y2 = y0 + (3.0 / 4.0) * vect_y;
+    let unit_v01x = vect_x / vect_length;
+    let unit_v01y = vect_y / vect_length;
+    let unit_v34x = unit_v01y;
+    let unit_v34y = -unit_v01x;
+    let x4 = x2 + unit_v34x * vect_length * 0.2;
+    let y4 = y2 + unit_v34y * vect_length * 0.2;
+    let x3 = x2 - unit_v34x * vect_length * 0.2;
+    let y3 = y2 - unit_v34y * vect_length * 0.2;
+    line(x0, y0, x1, y1);
+    line(x3, y3, x1, y1);
+    line(x4, y4, x1, y1);
+} 
+
+//
+//
+// Grid（格子）データの初期化。
+// 周期境界条件を仮定している。
+//
+// - 下の図はNX=8の場合。
+// - x 方向について描いているが、y方向も同様。
+// - 左方向と右方向に「世界」が周期的に続いている。
+// - 格子点の間隔は dx でこの値は一定（等間隔格子）。
+// - x方向のシミュレーション領域の範囲は [XMIN, XMAX]。
+// - x=XMINは0番の格子点の位置x[0]と1番の格子点位置x[1]の中点。
+// - x=XMAXはx[NX-2]とx[NX-1]の中点。
+// - x[0]の格子点とx[6]は同じ位置にある。
+// - 同様にx[NX-1]の格子点とx[1]は同じ位置にある。
+//
+// x[5]  x[6]  x[7]                          x[0]  x[1]  x[2]
+//   .     .     .                             .     .     .
+//   .     .     .                             .     .     .
+// --+-----+-----|              dx             |-----+-----+---
+//   5     6     7            /   \            0     1     2
+//         |-----+-----+-----+-----+-----+-----+-----|
+//         0  |  1     2     3     4     5     6  |  7
+//         .  |===================================|  .
+//         .  |  .     .                 .     .  |  .
+//         . XMIN.     .                 .     . XMAX.
+//         .     .     .                 .     .     .
+//         .     .     .                 .     .     .
+//       x[0]  x[1]  x[2] ...      ... x[5]  x[6]  x[7]
+//
+function grid__initialize() {
+    let dx = (XMAX - XMIN) / (NX - 2); // x方向の格子間隔
+    let dy = (YMAX - YMIN) / (NY - 2); // y方向の格子間隔
+    grid__dx = dx;             // グローバル変数として保存
+    grid__dy = dy;
+    grid__del = min(dx, dy);   // 最小格子点間隔。
+
+    //   CFL条件に必要な変数
+    grid__delsq = grid__del * grid__del; // その2乗 (squared)
+    grid__dx1 = 1.0 / (2 * dx); // 1階微分（差分）項の係数
+    grid__dy1 = 1.0 / (2 * dy); // y方向の微分（差分）
+
+    //  x=x_iにおける関数fの微分を差分で近似する、つまり
+    //
+    //   (df/dx)(x_i) = ( f_{i+1}-f_{i-1} ) / ( 2*dx )
+    //
+    //  とするには（2*dxによる）割り算と（2とdxの）掛け算が
+    //  含まれる。これは何度も出てくる計算なので、
+    //
+    //    dx1 = 1 / (2*dx )
+    //
+    //  を定義して、上の差分を
+    //
+    //   (df/dx)(x_i) = ( f_{i+1}-f_{i-1} ) * dx1
+    //
+    //  と書くことにすれば掛け算一回で済む。
+    grid__dx2 = 1.0 / (dx * dx); // 2階微分（差分）項の係数
+    grid__dy2 = 1.0 / (dy * dy); // y方向の2階微分（差分）
+
+    // x=x_i における関数fの2階微分の差分近似は
+    //
+    //   (d^2 f/dx^2)(x_i)
+    //       = ( f_{i+1}-2*f_{i} + f_{i-1} ) / ( dx^2 )
+    //
+    // である。そこで、
+    //
+    //   dx2 = 1 / (dx^2)
+    //
+    // を定義しておき、演算量を減らす。
+    for (let i = 0; i < NX; i++) {
+        grid__posx[i] = XMIN + dx * (i - 0.5); // i番目の格子点のx座標
+    }
+
+    for (let j = 0; j < NY; j++) {
+        grid__posy[j] = YMIN + dy * (j - 0.5); // j番目の格子点のy座標
+    }
+} 
+
+//
+// x方向とy方向の周期境界条件の設定（基本場）
+//
+function boundary_condition__field() {
+    //
+    // When NX = 10
+    //
+    //       0    1    2    3    4    5    6    7    8    9
+    //       o----o----o----o----o----o----o----o----o----o
+    //       |    |                                  |    |
+    //   ----o----o                                  o----o----
+    //       8    9                                  0    1
+    for (let j = 1; j < NY - 1; j++) {
+        field__rho[j][0] = field__rho[j][NX - 2];
+        field__prs[j][0] = field__prs[j][NX - 2];
+        field__mfx[j][0] = field__mfx[j][NX - 2];
+        field__mfy[j][0] = field__mfy[j][NX - 2];
+        field__rho[j][NX - 1] = field__rho[j][1];
+        field__prs[j][NX - 1] = field__prs[j][1];
+        field__mfx[j][NX - 1] = field__mfx[j][1];
+        field__mfy[j][NX - 1] = field__mfy[j][1];
+    }
+
+    for (let i = 0; i < NX; i++) {
+        field__rho[0][i] = field__rho[NY - 2][i];
+        field__prs[0][i] = field__prs[NY - 2][i];
+        field__mfx[0][i] = field__mfx[NY - 2][i];
+        field__mfy[0][i] = field__mfy[NY - 2][i];
+        field__rho[NY - 1][i] = field__rho[1][i];
+        field__prs[NY - 1][i] = field__prs[1][i];
+        field__mfx[NY - 1][i] = field__mfx[1][i];
+        field__mfy[NY - 1][i] = field__mfy[1][i];
+    }
+} 
+
+//
+// x方向とy方向の周期境界条件の設定（2つの補助場）
+//
+function boundary_condition__divv_vorz() {
+    for (let j = 1; j < NY - 1; j++) {
+        subfield__divv[j][0] = subfield__divv[j][NX - 2];
+        subfield__vorz[j][0] = subfield__vorz[j][NX - 2];
+        subfield__divv[j][NX - 1] = subfield__divv[j][1];
+        subfield__vorz[j][NX - 1] = subfield__vorz[j][1];
+    }
+    for (let i = 0; i < NX; i++) {
+        subfield__divv[0][i] = subfield__divv[NY - 2][i];
+        subfield__vorz[0][i] = subfield__vorz[NY - 2][i];
+        subfield__divv[NY - 1][i] = subfield__divv[1][i];
+        subfield__vorz[NY - 1][i] = subfield__vorz[1][i];
+    }
+} 
+
+//
+// 渦輪の駆動力の場を設定する。最初に一度だけ呼ぶ。
+//
+function solver__set_drive_force_field() {
+    let THE_FORCE = 2e3; // Driving force, maximum.
+    //
+    //   駆動力は下図のようにシミュレーション領域の
+    //   ごく一部にごく短時間だけ存在する。
+    //
+    //   The driving force is localized in the spatial region(s)
+    //   as in the following figure. .
+    //
+    //     +--------------------------------------+ YMAX
+    //     |                                      |
+    //     |                                      |
+    //     | y1 +-------+           y3 +-------+  |
+    //     |    | Force |              | Force |  |
+    //     | y0 +-------|           y2 +-------+  |
+    //     |    |       |              |       |  |
+    //     |    x0      x1             x2      x3 |
+    //     +--------------------------------------+ YMIN
+    //    XMIN                                   XMAX
+    //
+    //   ここでは空間的な分布を指定する。時間的な分布、
+    //   つまりごく短時間だけ力がかかるようにするのは
+    //   別の関数 (drive_force_factor) である。
+    //
+    //   The force is localized in time, too.
+    //   It is controlled by solver__drive_force_factor.
+    //
+    let x0 = XMIN + (XMAX - XMIN) / 10;      // 上図参照
+    let x1 = x0   + (XMAX - XMIN) / 10;      //   全体の長さの10%
+    let x3 = XMAX - (XMAX - XMIN) / 10;      //   長さの範囲に力をかける
+    let x2 = x3   - (XMAX - XMIN) / 10;      // 上図参照
+    let force_center_y = (YMAX + YMIN) / 2;  // 真ん中
+    let force_cylinder_diameter = (YMAX - YMIN) / 4;
+    let fcr = force_cylinder_diameter / 2;
+    let y0 = force_center_y - fcr;
+    let y1 = force_center_y + fcr;
+    let y2 = force_center_y - fcr;
+    let y3 = force_center_y + fcr;
+
+    for (let j = 1; j < NY - 1; j++) {
+        let yy = grid__posy[j] - force_center_y;
+        let radial_factor = exp((-2 * (yy * yy)) / (fcr * fcr));
+        for (let i = 1; i < NX - 1; i++) {
+            let xx = grid__posx[i];
+            // 計算領域の左に設定する右向きのパルス状の力の場
+            if (
+                xx > x0 &&
+                xx < x1 &&
+                yy > y0 - force_center_y &&
+                yy < y1 - force_center_y
+            ) {
+                solver__drive_force_x[j][i] = THE_FORCE * radial_factor;
+                solver__drive_force_y[j][i] = 0.0;
+            } 
+            // // 計算領域の右に設定する左向きのパルス状の力の場
+            // if (xx > x2 && xx < x3 && yy > y2 && yy < y3) {
+            //     solver__drive_force_x[j][i] = -THE_FORCE * radial_factor;
+            //     solver__drive_force_y[j][i] = 0.0;
+            // }
+        }
+    }
+} 
+
+//
+// 短時間だけ力がかかるようにするための係数を決める
+//
+function solver__drive_force_factor() {
+    //
+    //
+    //                                      factor
+    //              ___________               |
+    //             /|         |\              |
+    //      ______/ |         | \______       +--------> time
+    //            | |         |  |
+    //            | |         |  |
+    //            | t0        t1 |
+    //          t_start         t_end
+    //
+    //
+    let T_START = 0.0;
+    let T_END = 0.05;
+    let T0 = T_START + (T_END - T_START) / 4;
+    let T1 = T_END - (T_END - T_START) / 4;
+    let ONE = 1.0;
+    let ZERO = 0.0;
+    let drive_force_factor;
+
+    if (simtime_t <= T_START) {
+        drive_force_factor = ZERO;
+    } else if (simtime_t <= T0) {
+        drive_force_factor = (simtime_t - T_START) / (T0 - T_START);
+    } else if (simtime_t <= T1) {
+        drive_force_factor = ONE;
+    } else if (simtime_t <= T_END) {
+        drive_force_factor = ONE - (simtime_t - T1) / (T_END - T1);
+    } else {
+        drive_force_factor = ZERO;
+    }
+    return drive_force_factor;
+} 
+
+//
+// このシミュレーションコードではルンゲ=クッタ法による陽的な
+// 時間積分法で流体方程式の時間発展を追跡している。陽的な
+// 時間積分法ではCFL条件という制約が時間刻み幅dtに課せられる。
+// CFL条件とは直感的に言えば、ある格子点から隣の格子点に
+// 情報が伝わる時間よりも時間刻み幅dtを小さくする必要がある、
+// というものである。流体方程式では情報は、波か、流れか、拡散で
+// 伝わる。波は音波しかない。流れは流速で伝わる。拡散は
+// 速度の拡散（粘性係数に比例）、熱の拡散（熱拡散係数に比例）の
+// 2種類ある。
+//
+// 一般に、波の速度をc、流速をv、拡散係数をkとすると、
+// 1格子間隔 dx を、波が伝わる時間は dx / c
+//                流れが横切る時間は dx / v
+//                    拡散する時間は dx^2 / k
+// である。CFL条件によりシミュレーションの時間刻み幅dtは
+//
+//           dt = min( f1*(dx/c), f2*(dx/v), f3*(dx^2/k) )
+//
+// で決まる。ここで f1, f2, f3 は1未満の定数であり、CFL数と
+// 呼ばれる。
+//
+// 流体方程式の場合、音速や流速は時々刻々変化する流れ場の
+// 状態に依存して決まるのでCFL条件によって決まるdtも
+// 時間によって変える必要がある。ただし、流速や音速は
+// 1ステップでそれほど激しく変化するわけではないので、
+// シミュレーションの各ステップでCFL条件を計算する必要は
+// ない。次の関数では、SKIPステップ毎にCFD条件を計算し、
+// dtを設定し直している。
+//
+function solver__set_time_step() {
+    let SKIP = 20;      // CFL条件を計算するタイミング
+    let TINY = 1e-20;   // ゼロ割りを回避するためのちいさな数
+    let GAMMA_TIMES_GASS_CONST = GAMMA * GASS_CONST_OF_AIR; 
+                        // 演算量削減のために定義
+
+    if (simtime_step % SKIP == 0) {
+        // SKIP 毎にCFL条件を計算
+        let vmax = TINY;
+        let sound_v_max = 0.0;
+        let vorz_max = 0.0;
+        let vorz_min = 0.0; 
+
+        // シミュレーション領域全体に
+        // おける流れの速さや音速の最大値
+        // を求めるためのforループ
+        for (let j = 1; j < NY - 1; j++) {
+            // 境界の格子点は後で境界条件として設定するので飛ばす
+            for (let i = 1; i < NX - 1; i++) {
+                let vv = sqrt(subfield__vel2[j][i]);               // 速度の2乗
+                let temp = subfield__temp[j][i];                   // 温度場
+                let sound_v = sqrt(GAMMA_TIMES_GASS_CONST * temp); // 音速
+                let vorz = subfield__vorz[j][i];                   // 渦度のz成分
+                // これはCFL条件とは無関係だが可視化するこの量が
+                // だいたいどの程度の値になっているかをときどき
+                // 標準出力に書き出すと便利なのでここで最大値
+                // と最小値を計算する。渦度のz成分は正負の値を
+                // とるので最小値は負である。
+                if (vv > vmax) vmax = vv;
+                if (sound_v > sound_v_max) sound_v_max = sound_v;
+                if (vorz > vorz_max) vorz_max = vorz;
+                if (vorz < vorz_min) vorz_min = vorz;
+            }
+        }
+
+        let dt_vel = (0.8 * grid__del) / vmax;            // 音速によるCFL条件
+        let dt_sound = (0.8 * grid__del) / sound_v_max;   // 流速によるCFL条件
+        let dt_viscous = (0.2 * grid__delsq) / VISCOSITY; // 粘性拡散CFL条件
+        let dt_kappa = (0.2 * grid__delsq) / GAMMA1_TD;   // 熱拡散CFL条件
+        // 上の4種類のCFL条件で決まる4つの時間刻み幅で
+        // 最も厳しい（小さい）値をシミュレーションの時間刻み幅dtとする。
+        simtime_dt = min(dt_vel, dt_sound);
+        simtime_dt = min(simtime_dt, dt_viscous);
+        simtime_dt = min(simtime_dt, dt_kappa); // 画面に書き出す
+        console.log("time = " + simtime_t + " nstep  = " + simtime_step);
+        console.log("<solver__time_step> vmax = " + vmax);
+        console.log("           vorz max, min = " + vorz_max + ", " + vorz_min);
+        console.log("             sound_v_max = " + sound_v_max); 
+     // console.log("                  dt_vel = " + dt_vel     );
+     // console.log("                dt_sound = " + dt_sound   );
+     // console.log("             sound_v_max = " + sound_v_max );
+     // console.log("                dt_kappa = " + dt_kappa   );
+     // console.log("              dt_viscous = " + dt_viscous );
+        console.log("               -->    dt = " + simtime_dt);
+    }
+} 
+
+//
+//
+// 補助場 subfield の値を基本場 field から決める
+//
+// 以下では     < >   はベクトル量を、
+//              < >_x はベクトル量のx成分を、
+//              [ ]   は2階のテンソル量
+// を意味する。
+//
+// このシミュレーションでは流体の基本変数（基本場, field）を
+//
+//    <mf> : 質量フラックス (mass flux) ベクトル
+//     rho : 質量密度 (mass density, rho)
+//     prs : 圧力 (pressure)
+//
+// としている。補助変数の場（補助場 subfield）は
+//
+//   <vel> : 流体の流れ（速度）ベクトル。
+//    temp : 温度
+//    divv : 速度ベクトルの発散
+//    vel2 : 速度ベクトルの2乗
+//    vorz : 渦度ベクトルのz成分
+//
+// である。補助場と基本場は次の関係がある
+//
+//   <mf> = rho * <vel>                      // 質量フラックスの定義
+//    prs =  GASS_CONST_OF_AIR * rho * temp  // 理想気体の状態方程式
+//
+// 速度から決まる補助場は以下
+//   divv = div <vel>              // 速度の発散
+//   vorz = [curl <vel>]のz成分    // 渦度の定義式
+//   vel2 = <vel>^2                // 速度の2乗
+//
+// vorzとvel2は流体方程式には出てこない量であるが、ここで計算
+// しておくと便利。vorzは可視化に使う。vel2はCFL条件の計算に必要。
+//
+// 次の関数では上の関係式に基づき下の式から補助場を計算する。
+//   <vel> = <mf> / rho
+//    temp =  prs / ( GASS_CONST_OF_AIR * rho )
+//
+function subfield__calc() {
+    // シミュレーション領域の全格子点をうごくfor loop
+    for (let j = 0; j < NY; j++) {
+        for (let i = 0; i < NX; i++) {
+            let vx = field__mfx[j][i] / field__rho[j][i];
+            let vy = field__mfy[j][i] / field__rho[j][i];
+            subfield__velx[j][i] = vx;
+            subfield__vely[j][i] = vy;
+            subfield__vel2[j][i] = vx * vx + vy * vy;
+            subfield__temp[j][i] =
+                field__prs[j][i] / (GASS_CONST_OF_AIR * field__rho[j][i]);
+        }
+    } 
+
+    // divv （速度の発散）とvorz（渦度のz成分）の計算
+    // 差分で発散（divergence）と回転（curl）を求める
+    // それぞれの格子点の隣接格子点のデータが必要なので
+    // 境界面上の格子点はforループから除いている。
+    for (let j = 1; j < NY - 1; j++) {
+        for (let i = 1; i < NX - 1; i++) {
+            subfield__divv[j][i] =
+                (subfield__velx[j][i + 1] - subfield__velx[j][i - 1]) *
+                    grid__dx1 +
+                (subfield__vely[j + 1][i] - subfield__vely[j - 1][i]) *
+                    grid__dy1;
+            subfield__vorz[j][i] =
+                (subfield__vely[j][i + 1] - subfield__vely[j][i - 1]) *
+                    grid__dx1 -
+                (subfield__velx[j + 1][i] - subfield__velx[j - 1][i]) *
+                    grid__dy1;
+        }
+    } 
+
+    //
+    // 上のforループで計算していない境界面上のdivvとvorzは
+    // 境界条件関数の呼び出しで設定する。
+    //
+    boundary_condition__divv_vorz();
+} 
+
+//
+// 次の流体方程式（ナビエ=ストークス方程式）を解く。左辺は
+// 時間の偏微分である。
+//
+// d(<mf>_x)/dt = - div[<mf><vel>]_x - <grad p>_x - <F>_x - <G>_x
+// d(<mf>_y)/dt = - div[<mf><vel>]_x - <grad p>_x - <F>_y - <G>_x
+//    d(rho)/dt = - div[<mf>]
+//    d(prs)/dt = - (<vel>.<nabla>)(prs) - GAMMA*(prs)*div[<vel>]
+//                                       + GAMMA1_TD * laptm
+//
+// ここでGAMMAとGAMMA1_TD は定数である。また、
+//
+//              < >   はベクトル量を、
+//              < >_x はベクトル量のx成分を、
+//              [ ]   は2階のテンソル量
+// を意味する。
+//
+// この形式のナビエ=ストークス方程式では、基本変数を
+//    <mf>_x: mass flux, x-component
+//    <mf>_y: mass flux, y-component
+//       rho: mass density
+//       prs: pressure
+// としている。また、右辺に出てくる変数は以下の通り。
+//
+//    <F> : 渦輪の駆動力。狭い領域に短時間だけ存在する力の場
+//    <G> : 粘性力。（実際の空気よりも高い）粘性に起因する力
+//  <vel> : 速度ベクトル。流体の流れ。<vel> = <mf>/rho である
+//  laptm : 温度 temp (Temperatureの略) のラプラシアン
+//
+// この方程式の dt を右辺に動かした
+//
+//    d(<mf>_x) = (右辺)*dt
+//    d(<mf>_y) = (右辺)*dt
+//       d(rho) = (右辺)*dt
+//       d(prs) = (右辺)*dt
+//
+// の左辺を求めるが次の関数の目的である
+function solver__the_equation(nstep) {
+    let gradpx, gradpy, gdivvx, gdivvy, divfvx, divfvy;
+    let lapvx, lapvy, laptm, divmf;
+    let ONE_THIRD = 1.0 / 3.0;
+    let factor = solver__drive_force_factor();
+    for (let j = 1; j < NY - 1; j++) {
+        for (let i = 1; i < NX - 1; i++) {
+            // grad P
+            gradpx = (field__prs[j][i + 1] - field__prs[j][i - 1]) * grid__dx1;
+            gradpy = (field__prs[j + 1][i] - field__prs[j - 1][i]) * grid__dy1; // grad (div V)
+            gdivvx =
+                (subfield__divv[j][i + 1] - subfield__divv[j][i - 1]) *
+                grid__dx1;
+            gdivvy =
+                (subfield__divv[j + 1][i] - subfield__divv[j - 1][i]) *
+                grid__dy1;
+            divfvx =
+                (field__mfx[j][i + 1] * subfield__velx[j][i + 1] -
+                    field__mfx[j][i - 1] * subfield__velx[j][i - 1]) *
+                    grid__dx1 +
+                (field__mfx[j + 1][i] * subfield__vely[j + 1][i] -
+                    field__mfx[j - 1][i] * subfield__vely[j - 1][i]) *
+                    grid__dy1;
+            divfvy =
+                (field__mfy[j][i + 1] * subfield__velx[j][i + 1] -
+                    field__mfy[j][i - 1] * subfield__velx[j][i - 1]) *
+                    grid__dx1 +
+                (field__mfy[j + 1][i] * subfield__vely[j + 1][i] -
+                    field__mfy[j - 1][i] * subfield__vely[j - 1][i]) *
+                    grid__dy1;
+            lapvx =
+                (subfield__velx[j][i + 1] -
+                    2 * subfield__velx[j][i] +
+                    subfield__velx[j][i - 1]) *
+                    grid__dx2 +
+                (subfield__velx[j + 1][i] -
+                    2 * subfield__velx[j][i] +
+                    subfield__velx[j - 1][i]) *
+                    grid__dy2;
+            lapvy =
+                (subfield__vely[j][i + 1] -
+                    2 * subfield__vely[j][i] +
+                    subfield__vely[j][i - 1]) *
+                    grid__dx2 +
+                (subfield__vely[j + 1][i] -
+                    2 * subfield__vely[j][i] +
+                    subfield__vely[j - 1][i]) *
+                    grid__dy2;
+            laptm =
+                (subfield__temp[j][i + 1] -
+                    2 * subfield__temp[j][i] +
+                    subfield__temp[j][i - 1]) *
+                    grid__dx2 +
+                (subfield__temp[j + 1][i] -
+                    2 * subfield__temp[j][i] +
+                    subfield__temp[j - 1][i]) *
+                    grid__dy2;
+            divmf =
+                (field__mfx[j][i + 1] - field__mfx[j][i - 1]) * grid__dx1 +
+                (field__mfy[j + 1][i] - field__mfy[j - 1][i]) * grid__dy1;
+            let dmfx =
+                (-divfvx -
+                    gradpx +
+                    solver__drive_force_x[j][i] * factor +
+                    VISCOSITY * (lapvx + ONE_THIRD * gdivvx)) *
+                simtime_dt;
+            let dmfy =
+                (-divfvy -
+                    gradpy +
+                    solver__drive_force_y[j][i] * factor +
+                    VISCOSITY * (lapvy + ONE_THIRD * gdivvy)) *
+                simtime_dt;
+            let drho = -divmf * simtime_dt;
+            let dprs =
+                (-(
+                    subfield__velx[j][i] * gradpx +
+                    subfield__vely[j][i] * gradpy
+                ) +
+                    GAMMA1_TD * laptm -
+                    GAMMA * field__prs[j][i] * subfield__divv[j][i]) *
+                simtime_dt;
+            if (nstep == 0) {
+                solver__delta0_mfx[j][i] = dmfx;
+                solver__delta0_mfy[j][i] = dmfy;
+                solver__delta0_rho[j][i] = drho;
+                solver__delta0_prs[j][i] = dprs;
+            } else if (nstep == 1) {
+                solver__delta1_mfx[j][i] = dmfx;
+                solver__delta1_mfy[j][i] = dmfy;
+                solver__delta1_rho[j][i] = drho;
+                solver__delta1_prs[j][i] = dprs;
+            } else if (nstep == 2) {
+                solver__delta2_mfx[j][i] = dmfx;
+                solver__delta2_mfy[j][i] = dmfy;
+                solver__delta2_rho[j][i] = drho;
+                solver__delta2_prs[j][i] = dprs;
+            } else {
+                solver__delta3_mfx[j][i] = dmfx;
+                solver__delta3_mfy[j][i] = dmfy;
+                solver__delta3_rho[j][i] = drho;
+                solver__delta3_prs[j][i] = dprs;
+            }
+        }
+    }
+}
+
+function solver__advance() {
+    //
+    // 4段4次のルンゲ=クッタ法による時間積分
+    //
+    // 教科書に載っている古典的なアルゴリズムをそのまま
+    // 実装している。この古典的な実装方法はメモリを大量に
+    // 消費することに注意。
+    //
+    // 4つの基本場
+    //    field__mfx,
+    //    field__mfy,
+    //    field__rho,
+    //    field__prs
+    //
+    // の状態をdtだけ未来に進めるために
+    //
+    //    solver__copy,
+    //    solver__delta0,
+    //    solver__delta1,
+    //    solver__delta2,
+    //    solver__delta3,
+    //
+    //   という5個の作業用データが必要となる。この古典的
+    //   ルンゲ=クッタ法の精度（4次精度）を落とさずに
+    //   作業用データの数を減らすアルゴリズムも存在するが
+    //   ここではわかり易さを優先している。
+    //
+    //  Classical 4-th order Runge-Kutta method.
+    //           Here we use the following five sets of work arrays;
+    //                solver__copy,
+    //                solver__delta0,
+    //                solver__delta1,
+    //                solver__delta2,
+    //                solver__delta3,
+    //           to advance "field__???" from t=simtime_t to t=simtime_t+simtime_dt.
+    //
+    //           Use other method, such as Runge-Kutta-Gill, if you need to save memory.
+    //
+    let ONE_SIXTH = 1.0 / 6.0; // used many times. to save computation.
+                               // この定数は何度も出てくるのでここで定義する
+
+    // 現在時刻における field__* データをコピーしておく。
+    // この後、field__* は作業用として利用する。
+    for (let j = 0; j < NY; j++) {
+        // copy the fluid field at this time t = t.
+        for (let i = 0; i < NX; i++) {
+            // field__??? will be used as work fields.
+            solver__copy_mfx[j][i] = field__mfx[j][i];
+            solver__copy_mfy[j][i] = field__mfy[j][i];
+            solver__copy_rho[j][i] = field__rho[j][i];
+            solver__copy_prs[j][i] = field__prs[j][i];
+        }
+    } 
+
+    // ----------------------
+    // Runge-Kutta 1st step.
+    // ----------------------
+    solver__the_equation(0); // 流体方程式の右辺を評価
+    for (let j = 1; j < NY - 1; j++) {
+        for (let i = 1; i < NX - 1; i++) {
+            field__mfx[j][i] =
+                solver__copy_mfx[j][i] + 0.5 * solver__delta0_mfx[j][i];
+            field__mfy[j][i] =
+                solver__copy_mfy[j][i] + 0.5 * solver__delta0_mfy[j][i];
+            field__rho[j][i] =
+                solver__copy_rho[j][i] + 0.5 * solver__delta0_rho[j][i];
+            field__prs[j][i] =
+                solver__copy_prs[j][i] + 0.5 * solver__delta0_prs[j][i];
+        }
+    }
+    boundary_condition__field(); // 基本場の境界条件の設定
+    subfield__calc();            // 基本場から補助場 subfield を求める
+
+    // ----------------------
+    // Runge-Kutta 2nd step.
+    // ----------------------
+    simtime_t += simtime_dt / 2; // 時間をdt/2だけ進める
+    solver__the_equation(1);     // 流体方程式の右辺を評価
+    for (let j = 1; j < NY - 1; j++) {
+        for (let i = 1; i < NX - 1; i++) {
+            field__mfx[j][i] =
+                solver__copy_mfx[j][i] + 0.5 * solver__delta1_mfx[j][i];
+            field__mfy[j][i] =
+                solver__copy_mfy[j][i] + 0.5 * solver__delta1_mfy[j][i];
+            field__rho[j][i] =
+                solver__copy_rho[j][i] + 0.5 * solver__delta1_rho[j][i];
+            field__prs[j][i] =
+                solver__copy_prs[j][i] + 0.5 * solver__delta1_prs[j][i];
+        }
+    }
+    boundary_condition__field(); // 基本場の境界条件の設定
+    subfield__calc();            // 基本場から補助場を計算
+
+    // ----------------------
+    // Runge-Kutta 3rd step.
+    // ----------------------
+    solver__the_equation(2);     // 流体方程式の右辺を評価
+    for (let j = 1; j < NY - 1; j++) {
+        for (let i = 1; i < NX - 1; i++) {
+            field__mfx[j][i] =
+                solver__copy_mfx[j][i] + solver__delta2_mfx[j][i];
+            field__mfy[j][i] =
+                solver__copy_mfy[j][i] + solver__delta2_mfy[j][i];
+            field__rho[j][i] =
+                solver__copy_rho[j][i] + solver__delta2_rho[j][i];
+            field__prs[j][i] =
+                solver__copy_prs[j][i] + solver__delta2_prs[j][i];
+        }
+    }
+    boundary_condition__field(); // 基本場の境界条件の設定
+    subfield__calc();            // 基本場から補助場を計算
+
+    // ----------------------
+    // Runge-Kutta 4th step.
+    // ----------------------
+    simtime_t += simtime_dt / 2; // 時間をdt/2だけ進める
+    solver__the_equation(3);     // 流体方程式を評価
+
+    // これで4つの作業データdelta0からdelta3まで求まった。
+    // それらを重み付き平均値をとって最終的な更新値を求めて
+    // 基本場 field を時刻tの状態（copy）からdtだけ進める。
+    for (let j = 1; j < NY - 1; j++) {
+        for (let i = 1; i < NX - 1; i++) {
+            field__mfx[j][i] =
+                solver__copy_mfx[j][i] +
+                ONE_SIXTH *
+                    (solver__delta0_mfx[j][i] +
+                        2 * solver__delta1_mfx[j][i] +
+                        2 * solver__delta2_mfx[j][i] +
+                        solver__delta3_mfx[j][i]);
+            field__mfy[j][i] =
+                solver__copy_mfy[j][i] +
+                ONE_SIXTH *
+                    (solver__delta0_mfy[j][i] +
+                        2 * solver__delta1_mfy[j][i] +
+                        2 * solver__delta2_mfy[j][i] +
+                        solver__delta3_mfy[j][i]);
+            field__rho[j][i] =
+                solver__copy_rho[j][i] +
+                ONE_SIXTH *
+                    (solver__delta0_rho[j][i] +
+                        2 * solver__delta1_rho[j][i] +
+                        2 * solver__delta2_rho[j][i] +
+                        solver__delta3_rho[j][i]);
+            field__prs[j][i] =
+                solver__copy_prs[j][i] +
+                ONE_SIXTH *
+                    (solver__delta0_prs[j][i] +
+                        2 * solver__delta1_prs[j][i] +
+                        2 * solver__delta2_prs[j][i] +
+                        solver__delta3_prs[j][i]);
+        }
+    }
+    boundary_condition__field(); // 基本場の境界条件の設定
+    subfield__calc();            // 基本場から補助場を計算
+}
+

@@ -1,0 +1,224 @@
+// cellular_automaton_1d_time_development
+//    - by Akira Kageyama
+//    - on 2024.11.10
+//
+let rule = 240;    // 240, 30, 90 の中のどれかを指定
+        // 240 => 左隣と異なれば反転というルール
+        //  30 => カオス
+        //  90 => シェルピンスキーの自己相似三角形
+let cellSize = 5;        // セル一つのピクセルサイズ
+
+let initial_condition = '1'  // 1 or r
+        // '1' => 真ん中に1つだけ1をセット
+        // 'r' => 乱数
+
+let numCell = 121;       // セルの総数。ちょうど真ん中に
+                         // セルを置くために奇数が望ましいが必須ではない。
+
+let timeStepCounter = 0; // 時間ステップ数
+let timeStepCounterMax;  // このステップ数に到達したら計算を止める
+let cells;               // セルの配列
+let cellsCopy;           // 計算の効率化のために用意するセル配列のコピー
+let pause = false;       // 計算を一時停止するときに使う
+
+function setup() {
+    //
+    //  setup関数は最初に一度だけ呼ばれる。各種初期化を行う。
+    //
+    let width  = cellSize*numCell;
+    let height = int(width*1.2);   // 適当でいい
+    createCanvas(width, height);   // 表示ウィンドウの横幅と高さのピクセル数を最初に決める
+ // console.log("Mouse click => cell state reversal.");
+ // console.log("  Space key => stop/start.");
+    console.log("    'c' key => clear");
+    console.log("    'r' key => random");
+    console.log(" Return key => one step"); // 画面にメッセージを表示
+    timeStepCounterMax = height / cellSize; // 時間を1ステップ進める毎に新たなセル配列の
+    // 状態を下の行に表示する。
+    cells = new Array(numCell);         // セル配列の確保
+    cellsCopy = new Array(numCell);     // セル配列の「カーボンコピー」の確保
+    background(255);                    // 背景を白に設定
+    stroke(0);                          // セルの周囲を黒い線で描く
+    clearCells();                       // セル配列をリセット
+    if ( initial_condition == "1" ) {
+      cells[int(numCell/2)+1] = 1;      // 真ん中のセルに1をセット
+    } else if ( initial_condition == "r" ) {
+      setRandomCells();                 // ランダムに1をセット
+    }
+    boundaryCondition();                // 周期境界条件
+    copyCells(); // セル配列全体を「カーボンコピー」に複製
+}
+
+function drawCells() {
+    // 1状態のセルを黒い正方形で、0状態のセルを白い正方形で描く
+    for (let i = 0; i < numCell; i++) {
+        if (cells[i] == 1) {
+            fill(0);
+        } else {
+            fill(255);
+        }
+        square(i * cellSize, timeStepCounter * cellSize, cellSize);
+    }
+}
+
+function copyCells() {
+    for (let i = 0; i < numCell; i++) {
+        cellsCopy[i] = cells[i];
+    }
+}
+
+function clearScreen() {
+    background(255);
+    timeStepCounter = 0;
+}
+
+function clearCells() {
+    for (let i = 0; i < numCell; i++) {
+        cells[i] = 0;
+    }
+}
+
+function draw() {
+    drawCells();
+
+    if (!pause) {
+        stepTime();
+    }
+
+//  マウスクリックでセルの値を反転させる機能はオフにする
+//    if (pause && mouseIsPressed) {
+//        let xCellOver = int(map(mouseX, 0, width, 0, numCell));
+//        xCellOver = constrain(xCellOver, 0, numCell - 1);
+//        if (cellsCopy[xCellOver] == 1) {
+//            // alive
+//            cells[xCellOver] = 0; // Kill
+//        } else {
+//            // dead
+//            cells[xCellOver] = 1; // Make alive
+//        }
+//    } else if (pause && !mouseIsPressed) {
+//        boundaryCondition();
+//        copyCells();
+//    }
+}
+
+function applyRule(num) {
+    switch (num) {
+        case 240: 
+            // 「左の値が自分の値と違うなら自分の値を反転（0なら1に1なら0に）する」
+            //    これは「自分の値が何であろうと左の値に変更する」というルールと同じ
+            // before: 000 | 001 | 010 | 011 | 100 | 101 | 110 | 111 |
+            //  after: *0* | *0* | *0* | *0* | *1* | *1* | *1* | *1* |
+            for (let i = 1; i < numCell - 1; i++) {
+                if (cellsCopy[i - 1] != cellsCopy[i]) {
+                    // left neighbour
+                    cells[i] = (cells[i] + 1) % 2; //  flip: 0=>1, 1=>0
+                }
+            }
+            break;
+        case 30: 
+            // カオスパターン
+            // before: 000 | 001 | 010 | 011 | 100 | 101 | 110 | 111 |
+            //  after: *0* | *1* | *1* | *1* | *1* | *0* | *0* | *0* |
+            for (let i = 1; i < numCell - 1; i++) {
+                cells[i] = 0; // default
+                let bitOfLeftCell = cellsCopy[i - 1];
+                let bitOfSelfCell = cellsCopy[i];
+                let bitOfRiteCell = cellsCopy[i + 1];
+                let stateCode =
+                    bitOfLeftCell * 4 + bitOfSelfCell * 2 + bitOfRiteCell * 1;
+                if (stateCode >= 1 && stateCode <= 4) {
+                    cells[i] = 1;
+                }
+            }
+            break;
+        case 90: 
+            //  単一セルから出発するとシェルピンスキーの自己相似三角形
+            // before: 000 | 001 | 010 | 011 | 100 | 101 | 110 | 111 |
+            //  after: *0* | *1* | *0* | *1* | *1* | *0* | *1* | *0* |
+            for (let i = 1; i < numCell - 1; i++) {
+                cells[i] = 0; // default
+                if (cellsCopy[i - 1] == 0) {
+                    if (cellsCopy[i + 1] == 1) {
+                        cells[i] = 1;
+                    }
+                } else {
+                    if (cellsCopy[i + 1] == 0) {
+                        cells[i] = 1;
+                    }
+                }
+            } 
+            break;
+    }
+}
+
+function stepTime() {
+    applyRule(rule);
+    boundaryCondition();
+    copyCells();
+    timeStepCounter += 1;
+    if (timeStepCounter >= timeStepCounterMax) {
+        pause = true;
+    }
+}
+
+
+function setRandomCells() {
+    let percentageOfAliveCell = 15; // 15%の確率でセルを1状態にする
+    for (let i = 1; i < numCell - 1; i++) {
+        let state = random(100);
+        if (state > percentageOfAliveCell) {
+            state = 0;
+        } else {
+            state = 1;
+        }
+        cells[i] = int(state);
+    }
+}
+
+function keyPressed() {
+    if (key == "r" || key == "R") {
+        // 各セルの状態をランダムに割り当てるランダムに
+        clearScreen(); // Restart: reinitialization of cells
+        setRandomCells();
+        boundaryCondition();
+        copyCells();
+    }
+//    if (key == " ") {
+//        // On/off of pause
+//        pause = !pause;
+//    }
+    if (key == "c" || key == "C") {
+        // Clear all
+        clearScreen();
+        clearCells();
+        copyCells();
+        pause = true;
+    }
+    if (key == "1") {
+        clearScreen();
+        clearCells();
+        cells[int(numCell/2)+1] = 1;      // 真ん中のセルに1をセット
+        boundaryCondition();
+        copyCells();
+        pause = true;
+    }
+    if (key == "\n") {
+        stepTime();
+    }
+}
+
+function boundaryCondition() {
+    // 周期境界条件
+    //
+    // numCell = 10 のとき
+    //
+    //       0    1    2    3    4    5    6    7    8    9
+    //       o----o----o----o----o----o----o----o----o----o
+    //       |    |                                  |    |
+    //   ----o----o                                  o----o----
+    //       8    9                                  0    1
+    cells[0] = cells[numCell - 2];
+    cells[numCell - 1] = cells[1];
+}
+
