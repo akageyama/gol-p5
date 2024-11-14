@@ -32,8 +32,8 @@
   -  smoke\_ring\_2d.p5
     - Two-dimensional fluid simulation
 
-##  Usage
+##  Execution
 
-  - Copy and paste each code to "Editor" at https://editor.p5js.org/
-
-  - See the head part of each code.
+  - Go to p5js collection:
+     [https://editor.p5js.org/akageyama/collections/cVy7NmBFX]
+     (https://editor.p5js.org/akageyama/collections/cVy7NmBFX)
