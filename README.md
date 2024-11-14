@@ -35,5 +35,4 @@
 ##  Execution
 
   - Go to p5js collection:
-     [https://editor.p5js.org/akageyama/collections/cVy7NmBFX]
-     (https://editor.p5js.org/akageyama/collections/cVy7NmBFX)
+     https://editor.p5js.org/akageyama/collections/cVy7NmBFX
